@@ -24,6 +24,14 @@ import dwq.util as util
 
 from dwq.version import __version__
 
+import logging
+
+# Initialize module logger
+try:
+    logger = logging.getLogger('dwqw')
+except Exception:
+    logger = logging.getLogger(__name__)
+
 
 def sigterm_handler(signal, stack_frame):
     raise SystemExit()
@@ -90,7 +98,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
     global shutdown
 
     worker_str = f"dwqw@{args.name}.{n}"
-    print(f"{worker_str}: started")
+    logger.info(f"{worker_str}: started")
     buildnum = 0
     while not shutdown:
         try:
@@ -107,7 +115,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
 
                     if job.additional_deliveries > 2:
                         error = "too many deliveries (usual reason: timeout)"
-                        vprint(2, f"{worker_str}: {error}")
+                        logger.info(f"{worker_str}: {error}")
                         job.done(
                             {
                                 "status": "error",
@@ -122,15 +130,14 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                     buildnum += 1
                     working_set.add(job.job_id)
                     before = time.time()
-                    vprint(
-                        2,
-                        f"{worker_str}: got job {job.job_id} from queue {job.queue_name}",
+                    logger.debug(
+                        f"{worker_str}: got job {job.job_id} from queue {job.queue_name}"
                     )
 
                     try:
                         command = job.body["command"]
                     except KeyError:
-                        vprint(2, f"{worker_str}: invalid job json body")
+                        logger.info(f"{worker_str}: invalid job json body")
                         job.done(
                             {
                                 "status": "error",
@@ -139,7 +146,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                         )
                         continue
 
-                    vprint(2, f'{worker_str}: command="{command}"')
+                    logger.debug(f'{worker_str}: command="{command}"')
 
                     repo = None
                     commit = None
@@ -151,9 +158,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                         pass
 
                     if (repo is None) ^ (commit is None):
-                        vprint(
-                            2,
-                            f"{worker_str}: invalid job json body, only one of repo and commit specified",
+                        logger.warning(
+                            f"{worker_str}: invalid job json body, only one of repo and commit specified"
                         )
                         job.done(
                             {
@@ -217,14 +223,12 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                             if not workdir:
                                 if job.nacks < options.get("max_retries", 2):
                                     job.nack()
-                                    vprint(
-                                        1,
-                                        f"{worker_str}: error getting job dir, requeueing job",
+                                    logger.info(
+                                        f"{worker_str}: error getting job dir, requeueing job"
                                     )
                                     if workdir_error:
-                                        vprint(
-                                            1,
-                                            f'{worker_str}: jobdir error: "{workdir_error}"',
+                                        logger.info(
+                                            f'{worker_str}: jobdir error: "{workdir_error}"'
                                         )
                                 else:
                                     job.done(
@@ -237,9 +241,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                                             "body": job.body,
                                         }
                                     )
-                                    vprint(
-                                        1,
-                                        f"{worker_str}: cannot get job dir, erroring job",
+                                    logger.info(
+                                        f"{worker_str}: cannot get job dir, erroring job"
                                     )
                                 working_set.discard(job.job_id)
                                 continue
@@ -298,8 +301,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                         if (result not in {0, "0", "pass"}) and job.nacks < options.get(
                             "max_retries", 2
                         ):
-                            vprint(
-                                2,
+                            logger.debug(
                                 f"{worker_str}: command:",
                                 command,
                                 "result:",
@@ -381,8 +383,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
 
                             job.done(_result)
 
-                            vprint(
-                                2,
+                            logger.debug(
                                 f"{worker_str}: command:",
                                 command,
                                 "result:",
@@ -399,10 +400,9 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                         gitjobdir.release(workdir)
 
         except Exception as e:
-            print(f"{worker_str}: uncaught exception")
-            traceback.print_exc()
+            logger.exception(f"{worker_str}: uncaught exception")
             time.sleep(2)
-            print(f"{worker_str}: restarting worker")
+            logger.info(f"{worker_str}: restarting worker")
 
 
 class SyncSet(object):
@@ -425,15 +425,6 @@ class SyncSet(object):
             return oldset
 
 
-verbose = 0
-
-
-def vprint(n, *args, **kwargs):
-    global verbose
-    if n <= verbose:
-        print(*args, **kwargs)
-
-
 def handle_control_job(args, job):
     global active_event
     global shutdown
@@ -445,34 +436,34 @@ def handle_control_job(args, job):
         control = body["control"]
         cmd = control["cmd"]
         if cmd == "shutdown":
-            vprint(1, "dwqw: shutdown command received")
+            logger.info("dwqw: shutdown command received")
             result = "shutting down"
             shutdown = 1
 
         elif cmd == "pause":
             if not active_event.is_set():
-                vprint(1, "dwqw: pause command received, but already paused")
+                logger.info("dwqw: pause command received, but already paused")
                 result = "already paused"
             else:
-                vprint(1, "dwqw: pause command received")
+                logger.info("dwqw: pause command received")
                 active_event.clear()
                 result = "paused"
         elif cmd == "resume":
             if active_event.is_set():
-                vprint(1, "dwqw: resume command received, but not paused")
+                logger.info("dwqw: resume command received, but not paused")
                 result = "not paused"
             else:
-                vprint(1, "dwqw: resume command received. resuming ...")
+                logger.info("dwqw: resume command received. resuming ...")
                 active_event.set()
                 result = "resumed"
         elif cmd == "ping":
-            vprint(1, "dwqw: ping received")
+            logger.info("dwqw: ping received")
             result = "pong"
         else:
-            vprint(1, 'dwqw: unknown control command "%s" received' % cmd)
+            logger.info('dwqw: unknown control command "%s" received' % cmd)
 
     except KeyError:
-        vprint(1, "dwqw: error: invalid control job")
+        logger.info("dwqw: error: invalid control job")
 
     control_reply(args, job, result, status)
 
@@ -486,11 +477,23 @@ def control_reply(args, job, reply, status=0):
 
 def main():
     global shutdown
-    global verbose
     global active_event
 
     args = parse_args()
-    verbose = args.verbose - args.quiet
+    # Configure logging based on verbosity flags
+    log_verbosity = args.verbose - args.quiet
+    if log_verbosity >= 2:
+        log_level = logging.DEBUG
+    elif log_verbosity == 1:
+        log_level = logging.INFO
+    elif log_verbosity == 0:
+        log_level = logging.WARNING
+    else:
+        log_level = logging.ERROR
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
+    logger.setLevel(log_level)
+    logger.debug(
+        f"Logging initialized at level {logging.getLevelName(log_level)}")
 
     cmd_server_pool = cmdserver.CmdServerPool(args.jobs)
 
@@ -502,7 +505,7 @@ def main():
     servers = [args.disque_url]
     try:
         Disque.connect(servers)
-        vprint(1, "dwqw: connected.")
+        logger.info("dwqw: connected.")
     except:
         pass
 
@@ -521,9 +524,9 @@ def main():
         while True:
             if not Disque.connected():
                 try:
-                    vprint(1, "dwqw: connecting...")
+                    logger.info("dwqw: connecting...")
                     Disque.connect(servers)
-                    vprint(1, "dwqw: connected.")
+                    logger.info("dwqw: connected.")
                 except RedisError:
                     time.sleep(1)
                     continue
@@ -536,12 +539,12 @@ def main():
                 pass
 
     except (KeyboardInterrupt, SystemExit):
-        vprint(1, "dwqw: shutting down")
+        logger.info("dwqw: shutting down")
         shutdown = True
         cmd_server_pool.destroy()
-        vprint(1, "dwqw: nack'ing jobs")
+        logger.info("dwqw: nack'ing jobs")
         jobs = working_set.empty()
         d = Disque.get()
         d.nack_job(*jobs)
-        vprint(1, "dwqw: cleaning up job directories")
+        logger.info("dwqw: cleaning up job directories")
         gitjobdir.cleanup()
