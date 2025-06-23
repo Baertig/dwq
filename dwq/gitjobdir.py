@@ -115,7 +115,7 @@ class GitJobDir(object):
     def checkout(s, repo, commit, **kwargs):
         target_path = s.path(GitJobDir.dirkey(repo, commit, **kwargs))
         return subprocess.check_output(
-            ["git", "cache", "clone", repo, commit, target_path],
+            ["git", "cache", "clone", "--commit", commit, "--", repo, target_path],
             stderr=subprocess.STDOUT,
         )
 
