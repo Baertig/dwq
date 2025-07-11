@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import re
 import argparse
 import os
 import threading
@@ -19,6 +19,7 @@ from dwq import Job, Disque
 
 import dwq.cmdserver as cmdserver
 from dwq.gitjobdir import GitJobDir
+from dwq.hack import enqueue_to_fallback_worker, FallbackDisque, forward_from_fallback_worker
 
 import dwq.util as util
 
@@ -35,6 +36,15 @@ except Exception:
 
 def sigterm_handler(signal, stack_frame):
     raise SystemExit()
+
+
+def validate_regex(pattern):
+    try:
+        re.compile(pattern)
+        return pattern
+    except re.error as e:
+        raise argparse.ArgumentTypeError(
+            f"Invalid regex pattern '{pattern}': {e}")
 
 
 def parse_args():
@@ -61,6 +71,14 @@ def parse_args():
         type=int,
         default=multiprocessing.cpu_count(),
     )
+
+    parser.add_argument(
+        "--filter",
+        type=validate_regex,
+        nargs="+",  # Accepts one or more arguments
+        help="List of regex patterns used to filter jobs"
+    )
+
     parser.add_argument(
         "-n",
         "--name",
@@ -93,7 +111,7 @@ shutdown = False
 active_event = threading.Event()
 
 
-def worker(n, cmd_server_pool, gitjobdir, args, working_set):
+def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque):
     global active_event
     global shutdown
 
@@ -107,7 +125,12 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                 continue
             while not shutdown:
                 active_event.wait()
+
                 jobs = Job.get(args.queues)
+
+                if args.filter:
+                    pass
+
                 for job in jobs:
                     if shutdown or not active_event.is_set():
                         job.nack()
@@ -129,6 +152,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
 
                     buildnum += 1
                     working_set.add(job.job_id)
+
                     before = time.time()
                     logger.debug(
                         f"{worker_str}: got job {job.job_id} from queue {job.queue_name}"
@@ -145,6 +169,14 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                             }
                         )
                         continue
+
+                    if args.filter:
+                        matches_filter = any(
+                            [re.match(pattern, command) for pattern in args.filter])
+
+                        if not matches_filter:
+                            enqueue_to_fallback_worker(job, fallback_disque)
+                            continue
 
                     logger.debug(f'{worker_str}: command="{command}"')
 
@@ -217,17 +249,18 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                             except CalledProcessError as e:
                                 workdir_error = (
                                     f"{worker_str}: error getting jobdir. output:\n"
-                                    + e.output.decode("utf-8", "backslashreplace")
+                                    + e.output.decode("utf-8",
+                                                      "backslashreplace")
                                 )
 
                             if not workdir:
                                 if job.nacks < options.get("max_retries", 2):
                                     job.nack()
-                                    logger.info(
+                                    logger.error(
                                         f"{worker_str}: error getting job dir, requeueing job"
                                     )
                                     if workdir_error:
-                                        logger.info(
+                                        logger.error(
                                             f'{worker_str}: jobdir error: "{workdir_error}"'
                                         )
                                 else:
@@ -256,7 +289,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
 
                         # assets
                         asset_dir = os.path.join(
-                            workdir, "assets", "%s:%s" % (hash(job.job_id), str(unique))
+                            workdir, "assets", "%s:%s" % (
+                                hash(job.job_id), str(unique))
                         )
                         _env.update({"DWQ_ASSETS": asset_dir})
 
@@ -285,11 +319,13 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                                 )
 
                                 result = res.returncode
-                                output = res.stdout.decode("utf-8", "backslashreplace")
+                                output = res.stdout.decode(
+                                    "utf-8", "backslashreplace")
 
                             except TimeoutExpired as e:
                                 result = "timeout"
-                                decoded = e.output.decode("utf-8", "backslashreplace")
+                                decoded = e.output.decode(
+                                    "utf-8", "backslashreplace")
                                 output = f"{decoded}{worker_str}: error: timed out\n"
 
                         else:
@@ -355,7 +391,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                                     asset_files.extend(
                                         [
                                             os.path.relpath(
-                                                os.path.join(subdir, f), asset_dir
+                                                os.path.join(
+                                                    subdir, f), asset_dir
                                             )
                                             for f in subdir_files
                                         ]
@@ -370,7 +407,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set):
                                             )
                                         }
                                     )
-                                    shutil.rmtree(asset_dir, ignore_errors=True)
+                                    shutil.rmtree(
+                                        asset_dir, ignore_errors=True)
                                     _result["times"]["assets"] = (
                                         time.time() - before_assets
                                     )
@@ -472,7 +510,21 @@ def handle_control_job(args, job):
 
 
 def control_reply(args, job, reply, status=0):
-    job.done({"status": status, "output": reply, "worker": args.name, "body": job.body})
+    job.done({"status": status, "output": reply,
+             "worker": args.name, "body": job.body})
+
+
+def forward_jobs_from_fallback_worker(worker_name, working_set, fallback_disque):
+    global shutdown
+
+    while not shutdown:
+        try:
+            forward_from_fallback_worker(
+                fallback_disque, worker_name, working_set, Disque.get())
+
+        except RedisError:
+            logger.warning("redis error while forwarding")
+            pass
 
 
 def main():
@@ -490,6 +542,7 @@ def main():
         log_level = logging.WARNING
     else:
         log_level = logging.ERROR
+
     logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s')
     logger.setLevel(log_level)
     logger.debug(
@@ -509,19 +562,37 @@ def main():
     except:
         pass
 
+    fallback_disque = None
+    if args.filter:
+        try:
+            fallback_disque = FallbackDisque()
+            fallback_disque.connect()
+        except:
+            pass
+
     working_set = SyncSet()
+
+    logger.info(f"args: f{vars(args)}")
 
     for n in range(1, args.jobs + 1):
         threading.Thread(
             target=worker,
-            args=(n, cmd_server_pool, gitjobdir, args, working_set),
+            args=(n, cmd_server_pool, gitjobdir,
+                  args, working_set, fallback_disque),
             daemon=True,
+        ).start()
+
+    if args.filter:
+        threading.Thread(
+            target=forward_jobs_from_fallback_worker,
+            args=(args.name, working_set, fallback_disque)
         ).start()
 
     active_event.set()
 
     try:
         while True:
+            logger.info("entering main while loop")
             if not Disque.connected():
                 try:
                     logger.info("dwqw: connecting...")
@@ -531,8 +602,20 @@ def main():
                     time.sleep(1)
                     continue
 
+            if args.filter and not fallback_disque.connected():
+                try:
+                    logger.info("dwqw: fallback disque connecting...")
+                    fallback_disque.connect()
+                    logger.info("dwqw: fallback disque connected.")
+
+                except RedisError:
+                    time.sleep(1)
+                    continue
+
             try:
-                control_jobs = Job.get(["control::worker::%s" % args.name])
+                logger.info("getting jobs from control queue worker")
+                control_jobs = Job.get(
+                    ["control::worker::%s" % args.name])
                 for job in control_jobs or []:
                     handle_control_job(args, job)
             except RedisError:
