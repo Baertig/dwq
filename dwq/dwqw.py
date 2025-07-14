@@ -73,10 +73,10 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--filter",
+        "--exclude",
         type=validate_regex,
         nargs="+",  # Accepts one or more arguments
-        help="List of regex patterns used to filter jobs"
+        help="List of regex patterns used to exclude jobs"
     )
 
     parser.add_argument(
@@ -128,9 +128,6 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque):
 
                 jobs = Job.get(args.queues)
 
-                if args.filter:
-                    pass
-
                 for job in jobs:
                     if shutdown or not active_event.is_set():
                         job.nack()
@@ -170,11 +167,11 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque):
                         )
                         continue
 
-                    if args.filter:
-                        matches_filter = any(
-                            [re.match(pattern, command) for pattern in args.filter])
+                    if args.exclude:
+                        matches_exclude = any(
+                            [re.match(pattern, command) for pattern in args.exclude])
 
-                        if not matches_filter:
+                        if matches_exclude:
                             enqueue_to_fallback_worker(job, fallback_disque)
                             continue
 
@@ -563,7 +560,7 @@ def main():
         pass
 
     fallback_disque = None
-    if args.filter:
+    if args.exclude:
         try:
             fallback_disque = FallbackDisque()
             fallback_disque.connect()
@@ -582,7 +579,7 @@ def main():
             daemon=True,
         ).start()
 
-    if args.filter:
+    if args.exclude:
         threading.Thread(
             target=forward_jobs_from_fallback_worker,
             args=(args.name, working_set, fallback_disque)
@@ -602,7 +599,7 @@ def main():
                     time.sleep(1)
                     continue
 
-            if args.filter and not fallback_disque.connected():
+            if args.exclude and not fallback_disque.connected():
                 try:
                     logger.info("dwqw: fallback disque connecting...")
                     fallback_disque.connect()

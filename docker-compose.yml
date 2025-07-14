@@ -8,9 +8,9 @@ services:
   disque-other:
     build: ./disque/
 
-  worker-ls:
+  worker-no-ls:
     build: .
-    command: ["dwqw", "-D", "disque:7711", "--jobs", "3", "--filter", "ls.*"]
+    command: ["dwqw", "-D", "disque:7711", "--jobs", "3", "--exclude", "ls.*"]
     environment:
       - PYTHONUNBUFFERED=1
 
