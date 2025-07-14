@@ -1,18 +1,18 @@
 import json
 import logging
 
+from prometheus_client import Counter
 from pydisque.client import Client
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-FALLBACK_DISQUE = "disque-other:7711"
 FALLBACK_CONTROL_QUEUE = "control::123456789"
 
 
 class FallbackDisque(object):
-    def __init__(self):
-        self.disque = Client([FALLBACK_DISQUE])
+    def __init__(self, fallback_disque_url):
+        self.disque = Client([fallback_disque_url])
 
     def connect(self):
         self.disque.connect()
@@ -51,9 +51,6 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
         jobs.append(body)
 
     for job in jobs:
-        for key in job.keys():
-            logger.info(f"found key {key} in job object")
-
         result = job["result"]
         original_control_queues = result["body"]["original_control_queues"]
         del result["body"]["original_control_queues"]

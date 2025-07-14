@@ -76,7 +76,13 @@ def parse_args():
         "--exclude",
         type=validate_regex,
         nargs="+",  # Accepts one or more arguments
-        help="List of regex patterns used to exclude jobs"
+        help="List of regex patterns used to exclude jobs. These jobs are sent to '--falback-disque'"
+    )
+
+    parser.add_argument(
+        "--fallback-disque",
+        help="Only used when '--exclude' patterns are configured: fallback disque instance that will receive jobs that match the 'exclude' pattern(s).",
+        type=str,
     )
 
     parser.add_argument(
@@ -103,7 +109,13 @@ def parse_args():
         "-Q", "--quiet", help="be less verbose", action="count", default=0
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    if args.exclude and not args.fallback_disque:
+        parser.error(
+            "--fallback-disque is required when --exclude is specified")
+
+    return args
 
 
 shutdown = False
@@ -562,7 +574,7 @@ def main():
     fallback_disque = None
     if args.exclude:
         try:
-            fallback_disque = FallbackDisque()
+            fallback_disque = FallbackDisque(args.fallback_disque)
             fallback_disque.connect()
         except:
             pass
