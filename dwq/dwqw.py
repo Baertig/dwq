@@ -14,6 +14,7 @@ from subprocess import run, PIPE, STDOUT, TimeoutExpired, CalledProcessError
 
 import redis
 from redis.exceptions import ConnectionError, RedisError
+from prometheus_client import start_http_server, Counter
 
 from dwq import Job, Disque
 
@@ -109,6 +110,12 @@ def parse_args():
         "-Q", "--quiet", help="be less verbose", action="count", default=0
     )
 
+    parser.add_argument(
+        "--prometheus",
+        help="enable prometheus metrics metrics are published at http://localhost:8000",
+        action="store_true"
+    )
+
     args = parser.parse_args()
 
     if args.exclude and not args.fallback_disque:
@@ -123,7 +130,12 @@ shutdown = False
 active_event = threading.Event()
 
 
-def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque):
+def inc_command_counter(disque_tasks_total_counter: Counter, job):
+    command = job.body["command"]
+    disque_tasks_total_counter.labels(command).inc()
+
+
+def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque, disque_tasks_total_counter):
     global active_event
     global shutdown
 
@@ -141,6 +153,10 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque):
                 jobs = Job.get(args.queues)
 
                 for job in jobs:
+                    if args.prometheus:
+                        inc_command_counter(
+                            disque_tasks_total_counter, job)
+
                     if shutdown or not active_event.is_set():
                         job.nack()
                         continue
@@ -571,6 +587,13 @@ def main():
     except:
         pass
 
+    disque_tasks_total_counter = None
+    if args.prometheus:
+        start_http_server(8000)
+        disque_tasks_total_counter = Counter(
+            "disque_tasks_received_total", "Number of tasks, that all threads of the worker received.", ["command"])
+
+
     fallback_disque = None
     if args.exclude:
         try:
@@ -587,7 +610,7 @@ def main():
         threading.Thread(
             target=worker,
             args=(n, cmd_server_pool, gitjobdir,
-                  args, working_set, fallback_disque),
+                  args, working_set, fallback_disque, disque_tasks_total_counter),
             daemon=True,
         ).start()
 

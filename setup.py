@@ -51,7 +51,7 @@ setup(
 
     keywords='distributed queue',
     packages=['dwq'],
-    install_requires=['pydisque_dwq'],
+    install_requires=['pydisque_dwq', "prometheus-client"],
     entry_points={
         'console_scripts': [
             'dwqc=dwq.dwqc:main',
