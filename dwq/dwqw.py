@@ -363,14 +363,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque, di
                             "max_retries", 2
                         ):
                             logger.debug(
-                                f"{worker_str}: command:",
-                                command,
-                                "result:",
-                                result,
-                                "nacks:",
-                                job.nacks,
-                                "re-queueing.",
-                            )
+                                f"{worker_str}: command: {command} result: {result} nacks: {job.nacks} re-queueing.")
                             job.nack()
                         else:
                             cmd_runtime = command_done_at - command_start_at
@@ -447,12 +440,8 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque, di
                             job.done(_result)
 
                             logger.debug(
-                                f"{worker_str}: command:",
-                                command,
-                                "result:",
-                                result,
-                                "runtime: %.1fs" % runtime,
-                            )
+                                f"{worker_str}: command: {command} result: {result} runtime: {'%.1fs' % runtime}")
+
                             working_set.discard(job.job_id)
                     except Exception as e:
                         if workdir and repo:
