@@ -51,8 +51,23 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
         jobs.append(body)
 
     for job in jobs:
-        result = job["result"]
-        original_control_queues = result["body"]["original_control_queues"]
+        result = job.get("result")
+
+        if not result:
+            logger.warning(
+                f"Job {json.dumps(job)} did not contain a result not forwarding...")
+
+            continue
+
+        original_control_queues = result.get(
+            "body", {}).get("original_control_queues")
+
+        if not original_control_queues:
+            logger.warning(
+                f"Job {json.dumps(job)} did not contain a 'original_control_queue' field, not forwarding...")
+            continue
+
+
         del result["body"]["original_control_queues"]
 
         original_job_id = result["body"]["original_id"]
