@@ -1,6 +1,8 @@
 import json
 import logging
 
+from dwq import Job
+
 from prometheus_client import Counter
 from pydisque.client import Client
 
@@ -32,6 +34,11 @@ def enqueue_to_fallback_worker(job, fallback_disque):
     body["original_id"] = job.job_id
     body["control_queues"] = [FALLBACK_CONTROL_QUEUE]
 
+    body["env"] = body["env"].update({
+        "ORIGINAL_CONTROL_QUEUES": " ".join(body["control_queues"]),
+        "ORIGINAL_ID": job.job_id
+    })
+
     json_body = json.dumps(body)
     return fallback_disque.disque.add_job("default", json_body).decode("ascii")
 
@@ -52,40 +59,42 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
 
     for job in jobs:
         result = job.get("result")
+        parent = job.get("parent")
 
-        if not result:
+        if result:
+            original_control_queues = result["body"]["original_control_queues"]
+            del result["body"]["original_control_queues"]
+
+            original_job_id = result["body"]["original_id"]
+            del result["body"]["original_id"]
+
+            result["worker"] = worker_name
+
+            for queue in original_control_queues:
+                if queue == "$jobid":
+                    queue = original_job_id
+
+                disque.add_job(
+                    queue,
+                    json.dumps({
+                        "job_id": original_job_id,
+                        "state": "done",
+                        "result": result
+                    })
+                )
+
+            disque.ack_job(original_job_id)
+            working_set.discard(original_job_id)
+
+        elif parent:
+            original_control_queues = job["original_control_queues"].split(" ")
+            del job["original_control_queues"]
+
+            original_job_id = job["original_id"]
+            del job["orignal_id"]
+
+            Job.add(original_control_queues[0], job, None)
+
+        else:
             logger.warning(
-                f"Job {json.dumps(job)} did not contain a result not forwarding...")
-
-            continue
-
-        original_control_queues = result.get(
-            "body", {}).get("original_control_queues")
-
-        if not original_control_queues:
-            logger.warning(
-                f"Job {json.dumps(job)} did not contain a 'original_control_queue' field, not forwarding...")
-            continue
-
-
-        del result["body"]["original_control_queues"]
-
-        original_job_id = result["body"]["original_id"]
-        del result["body"]["original_id"]
-
-        result["worker"] = worker_name
-
-        for queue in original_control_queues:
-            if queue == "$jobid":
-                queue = original_job_id
-            disque.add_job(
-                queue,
-                json.dumps({
-                    "job_id": original_job_id,
-                    "state": "done",
-                    "result": result
-                })
-            )
-
-        disque.ack_job(original_job_id)
-        working_set.discard(original_job_id)
+                f"job {json.dumps(job)} did not contain 'result' or 'parent' key, cannot forward, skipping...")

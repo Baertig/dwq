@@ -74,6 +74,9 @@ def main():
         print("dwqc: error: DWQ_JOBID unset.")
         sys.exit(1)
 
+    original_control_queues = os.environ.get("ORIGINAL_CONTROL_QUEUES")
+    original_id = os.environ.get("ORIGINAL_ID")
+
     verbose = args.verbose
     signal.signal(signal.SIGTERM, sigterm_handler)
     Disque.connect([args.disque_url])
@@ -109,6 +112,15 @@ def main():
         "subjob": job_id,
         "unique": os.environ.get("DWQ_JOB_UNIQUE"),
     }
+
+    if original_control_queues:
+        body["original_control_queues"] = original_control_queues
+        result_body["body"]["original_control_queues"] = original_control_queues
+
+    if original_id:
+        body["original_id"] = original_id
+        result_body["body"]["original_id"] = original_id
+
     Job.add(control_queue, body, None)
 
     # send actual job result
