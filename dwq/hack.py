@@ -50,18 +50,41 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
     logger.info(f"received {len(_jobs)} from fallback worker")
 
     jobs = []
+    job_ids = []
     for queue_name, job_id, json_body in _jobs:
         queue_name = queue_name.decode("ascii")
         job_id = job_id.decode("ascii")
+
         body = json.loads(json_body.decode("utf-8"))
         fallback_disque.disque.fast_ack(job_id)
-        jobs.append(body)
 
-    for job in jobs:
+        jobs.append(body)
+        job_ids.append(job_id)
+
+    for job, job_id in zip(jobs, job_ids):
         result = job.get("result")
         parent = job.get("parent")
+        is_subjob = job.get("result", {}).get("is_subjob")
 
-        if result:
+        if is_subjob:
+            del result["is_subjob"]
+
+            original_control_queues = result["body"]["original_control_queues"]
+            del result["body"]["original_control_queues"]
+
+            result["worker"] = worker_name
+
+            for queue in original_control_queues:
+                disque.add_job(
+                    queue,
+                    json.dumps({
+                        "job_id": job_id,  # maintain the job_id because it was produced locally and is referenced by the parent message
+                        "state": "done",
+                        "result": result
+                    })
+                )
+
+        elif result:
             original_control_queues = result["body"]["original_control_queues"]
             del result["body"]["original_control_queues"]
 
@@ -92,6 +115,8 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
 
             original_job_id = job["original_id"]
             del job["orignal_id"]
+
+            job["parent"] = original_job_id
 
             Job.add(original_control_queues[0], job, None)
 

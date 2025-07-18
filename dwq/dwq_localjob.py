@@ -116,10 +116,10 @@ def main():
     if original_control_queues:
         body["original_control_queues"] = original_control_queues
         result_body["body"]["original_control_queues"] = original_control_queues
+        result_body["is_subjob"] = True
 
     if original_id:
         body["original_id"] = original_id
-        result_body["body"]["original_id"] = original_id
 
     Job.add(control_queue, body, None)
 
