@@ -30,12 +30,13 @@ class FallbackDisque(object):
 
 def enqueue_to_fallback_worker(job, fallback_disque):
     body = job.body
-    body["original_control_queues"] = body["control_queues"]
+    original_control_queues = body["control_queues"]
+    body["original_control_queues"] = original_control_queues
     body["original_id"] = job.job_id
     body["control_queues"] = [FALLBACK_CONTROL_QUEUE]
 
     body["env"].update({
-        "ORIGINAL_CONTROL_QUEUES": " ".join(body["control_queues"]),
+        "ORIGINAL_CONTROL_QUEUES": " ".join(original_control_queues),
         "ORIGINAL_ID": job.job_id
     })
 
