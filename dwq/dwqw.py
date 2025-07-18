@@ -241,7 +241,7 @@ def worker(n, cmd_server_pool, gitjobdir, args, working_set, fallback_disque, di
                     try:
                         if args.prometheus:
                             logger.info(
-                                f"The env from the job is {job.body.get("env")}")
+                                f"The env from the job is {job.body.get('env')}")
 
                         _env.update(job.body["env"])
                     except KeyError:
