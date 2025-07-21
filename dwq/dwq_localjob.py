@@ -74,7 +74,7 @@ def main():
         print("dwqc: error: DWQ_JOBID unset.")
         sys.exit(1)
 
-    original_control_queues = os.environ.get("ORIGINAL_CONTROL_QUEUES")
+    original_control_queues_string = os.environ.get("ORIGINAL_CONTROL_QUEUES")
     original_id = os.environ.get("ORIGINAL_ID")
 
     verbose = args.verbose
@@ -113,9 +113,12 @@ def main():
         "unique": os.environ.get("DWQ_JOB_UNIQUE"),
     }
 
-    if original_control_queues:
+    if original_control_queues_string:
+        original_control_queues = original_control_queues_string.split(" ")
+
         body["original_control_queues"] = original_control_queues
         result_body["body"]["original_control_queues"] = original_control_queues
+
         result_body["is_subjob"] = True
 
     if original_id:

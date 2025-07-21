@@ -71,6 +71,7 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
             del result["is_subjob"]
 
             original_control_queues = result["body"]["original_control_queues"]
+            assert isinstance(original_control_queues, list)
             del result["body"]["original_control_queues"]
 
             result["worker"] = worker_name
@@ -87,6 +88,7 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
 
         elif result:
             original_control_queues = result["body"]["original_control_queues"]
+            assert isinstance(original_control_queues, list)
             del result["body"]["original_control_queues"]
 
             original_job_id = result["body"]["original_id"]
@@ -111,7 +113,10 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
             working_set.discard(original_job_id)
 
         elif parent:
-            original_control_queues = job["original_control_queues"].split(" ")
+            original_control_queues = job["original_control_queues"]
+
+            assert isinstance(original_control_queues, list)
+
             del job["original_control_queues"]
 
             original_job_id = job["original_id"]
