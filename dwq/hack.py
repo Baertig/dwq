@@ -51,7 +51,6 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
     logger.info(f"received {len(_jobs)} from fallback worker")
 
     jobs = []
-    job_ids = []
     for queue_name, job_id, json_body in _jobs:
         queue_name = queue_name.decode("ascii")
         job_id = job_id.decode("ascii")
@@ -60,9 +59,8 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
         fallback_disque.disque.fast_ack(job_id)
 
         jobs.append(body)
-        job_ids.append(job_id)
 
-    for job, job_id in zip(jobs, job_ids):
+    for job in jobs:
         result = job.get("result")
         parent = job.get("parent")
         is_subjob = job.get("result", {}).get("is_subjob")
@@ -80,7 +78,8 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
                 disque.add_job(
                     queue,
                     json.dumps({
-                        "job_id": job_id,  # maintain the job_id because it was produced locally and is referenced by the parent message
+                        # maintain the job_id because it was produced locally and is referenced by the parent message
+                        "job_id": job["job_id"],
                         "state": "done",
                         "result": result
                     })
