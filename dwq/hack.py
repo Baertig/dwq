@@ -115,7 +115,7 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
             del job["original_control_queues"]
 
             original_job_id = job["original_id"]
-            del job["orignal_id"]
+            del job["original_id"]
 
             job["parent"] = original_job_id
 
