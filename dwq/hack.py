@@ -90,10 +90,15 @@ def forward_from_fallback_worker(fallback_disque, worker_name, working_set, disq
             assert isinstance(original_control_queues, list)
             del result["body"]["original_control_queues"]
 
+            result["body"].update({"control_queues": original_control_queues})
+
             original_job_id = result["body"]["original_id"]
             del result["body"]["original_id"]
 
             result["worker"] = worker_name
+
+            result["body"]["env"].pop("ORIGINAL_CONTROL_QUEUES", None)
+            result["body"]["env"].pop("ORIGINAL_ID", None)
 
             for queue in original_control_queues:
                 if queue == "$jobid":
